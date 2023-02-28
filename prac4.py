@@ -12,7 +12,8 @@ class system:
 
         self.potential = potential
         self.N = N
-        ## WLOG set (x1, y1, z1, x2, y2) = 0
+        ## WLOG set (x1, y1, z1, x2, y2) = 0, then the decision vector
+        ## has 5 less dimensions
         self.xsize = 3 * N - 5
 
     def get_bounds(self):
@@ -30,7 +31,7 @@ class system:
         U = np.array([0.])
 
         ## add on the fixed positions to the decision vector
-        r0 = np.array([0,0,0,0,0], np.float32)
+        r0 = np.array([0,0,0,0,0])
         tot_atoms = np.concatenate((r0, x), axis=0)
 
         ## Split decision vector into set of position vectors
@@ -114,7 +115,7 @@ def main():
         prob = pg.problem(system(morse, N))
         units = "D_e"
 
-    ## Many algorithms possible, covariance matrix evolution strategy seems to work best and fastest
+    ## Many algorithms; covariance matrix evolution strategy seems to work best and fastest
     ## Finds the D5h global minimum about half the time. Depending on desired run time this can be improved
     algo = pg.algorithm(pg.cmaes(gen=2000))
     pop = pg.population(prob, 1000)
