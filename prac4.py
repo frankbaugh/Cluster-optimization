@@ -1,6 +1,3 @@
-import numpy as np 
-import pygmo as pg
-import os
 
 ## Solutions: http://doye.chem.ox.ac.uk/jon/structures/LJ.html
 ## https://www.math.umd.edu/~mariakc/LJClusters.html
@@ -10,46 +7,44 @@ class system:
 
     def __init__(self, potential, N):
 
-        self.potential = potential
         self.N = N
-        ## WLOG set (x1, y1, z1, x2, y2) = 0, then the decision vector
+        self.potential = potential
+        ## WLOG set (x1, y1, z1, x2, y2, ) = 0, then the decision vector
         ## has 5 less dimensions
-        self.xsize = 3 * N - 5
+        self.xsize = 3 * N - 6
 
     def get_bounds(self):
 
-        width = 2
+        width = 3
         ## fill arrays with minimum bounds
-        low_bound = np.zeros(self.xsize,)
-        high_bound = np.full((self.xsize,), width)
+        low_bound = np.zeros(self.xsize)
+        high_bound = np.full((self.xsize), width)
 
         return (low_bound, high_bound)
 
-
     def fitness(self, x):
-
+        ## pygmo requires fitness to return a vector
         U = np.array([0.])
 
         ## add on the fixed positions to the decision vector
-        r0 = np.array([0,0,0,0,0])
+        r0 = np.array([0.,0.,0.,0.,0.])
+        x = np.insert(x, 1, 0.)
         tot_atoms = np.concatenate((r0, x), axis=0)
 
         ## Split decision vector into set of position vectors
         vects = np.split(tot_atoms, self.N)
 
+        ##This could really be alot more efficient but its fairly quick for N=7
         ## compute potential of the norm between all vectors: O(N^2)
         for i in range(self.N):
-            for j in range(i + 1, self.N):
+            for j in range(i+1, self.N):
                 r_ij = np.subtract(vects[j], vects[i])
-                r = np.sqrt(r_ij.dot(r_ij))
+                r = np.linalg.norm(r_ij)
                 U[0] += self.potential(r)
 
-        ## pygmo requires fitness to return a vector
         return U
 
-
 def LJ(r):
-
     return 4 * (pow(r, -12) - pow(r, -6))
 
 def morse(r):
@@ -67,7 +62,9 @@ def XYZ(positions, N):
     f.write(Nstr + "\n")
     f.write("This is a comment line \n")
 
-    r0 = np.array([0,0,0, 0, 0])
+    ## Assemble positions from winning decision vector
+    r0 = np.array([0.,0.,0., 0., 0.])
+    positions = np.insert(positions, 1, 0.)
     tot_atoms = np.concatenate((r0, positions), axis=0)
 
     posvects = np.split(tot_atoms, N)
@@ -84,6 +81,7 @@ def XYZ(positions, N):
 
         f.write(xyz)
 
+    ## Open the created file in the system's default .xyz program
     os.system("open " + filename)
 
 def main():
@@ -100,37 +98,43 @@ def main():
         except ValueError:
             print("That's not an int!")     
     
+    # Select inter-atomic potential
     while True:
         potential = input("Enter 1 for Lennard-Jones potential, or 2 for Morse ")
-        if not potential in ["1", "2"]:
-            print("Invalid Selection")
-            continue
-        break
+        if potential == "1":
+            prob = pg.problem(system(LJ, N))
+            units = "\u03B5"
+            break
+        elif potential == "2":
+            prob = pg.problem(system(morse, N))
+            units = "D_e"
+            break
+        else: continue
     
-    ## Select potential
-    if potential == "1":
-        prob = pg.problem(system(LJ, N))
-        units = "\u03B5"
-    else:
-        prob = pg.problem(system(morse, N))
-        units = "D_e"
+    ## Many minimization algorithms; covariance matrix evolution strategy seems to work best and fastest
+    ## the gen, n and pop_size parameters want to be as low as possilbe (speed) whilst
+    ## Still consistently hitting the global minimum D5h cluster
 
-    ## Many algorithms; covariance matrix evolution strategy seems to work best and fastest
-    ## Finds the D5h global minimum about half the time. Depending on desired run time this can be improved
-    algo = pg.algorithm(pg.cmaes(gen=2000))
-    pop = pg.population(prob, 1000)
-    pop = algo.evolve(pop)
+    algo = pg.algorithm(pg.cmaes(gen=500))
 
-    print("Minimum energy " + str(pop.champion_f[0]) + " " + units) 
+    # The real strength of pygmo is that it can compute in a parallelized fashion
+    ## n 'islands' of evolving populations
+    archi = pg.archipelago(n=8, algo=algo, prob=prob, pop_size=30, udi=pg.mp_island(use_pool=True))
+    archi.evolve()
+    print(archi)
+    archi.wait()
 
-    XYZ(pop.champion_x, N)
+    ## Extract best individual from archipelago
+    min_index = np.argmin(archi.get_champions_f())
+    min_energy = archi.get_champions_f()[min_index]
+    configuration = archi.get_champions_x()[min_index]
+    
+    print("Minimum energy " + str(min_energy) + " " + units) 
 
+    XYZ(configuration, N)
 
-main()
-
-
-
-
-
-
-
+if __name__ == '__main__':       
+    import numpy as np 
+    import pygmo as pg
+    import os
+    main()
